@@ -9,6 +9,7 @@ use crate::{
     schema::Schema,
     searcher::Searcher,
     to_pyerr,
+    readonlydir::ReadOnlyDirectoryWrapper,
 };
 use tantivy as tv;
 use tantivy::{
@@ -178,19 +179,35 @@ impl Index {
     }
 
     #[new]
-    #[pyo3(signature = (schema, path = None, reuse = true))]
-    fn new(schema: &Schema, path: Option<&str>, reuse: bool) -> PyResult<Self> {
+    #[pyo3(signature = (schema, path = None, reuse = true, readonly = false))]
+    fn new(schema: &Schema, path: Option<&str>, reuse: bool, readonly: bool) -> PyResult<Self> {
         let index = match path {
             Some(p) => {
                 let directory = MmapDirectory::open(p).map_err(to_pyerr)?;
                 if reuse {
-                    tv::Index::open_or_create(directory, schema.inner.clone())
+                    if readonly {
+                        tv::Index::open_or_create(ReadOnlyDirectoryWrapper {
+                            inner: directory,
+                        }, schema.inner.clone())
+                    } else {
+                        tv::Index::open_or_create(directory, schema.inner.clone())
+                    }
                 } else {
-                    tv::Index::create(
-                        directory,
-                        schema.inner.clone(),
-                        tv::IndexSettings::default(),
-                    )
+                    if readonly {
+                        tv::Index::create(
+                            ReadOnlyDirectoryWrapper {
+                                inner: directory,
+                            },
+                            schema.inner.clone(),
+                            tv::IndexSettings::default(),
+                        )
+                    } else {
+                        tv::Index::create(
+                            directory,
+                            schema.inner.clone(),
+                            tv::IndexSettings::default(),
+                        )
+                    }
                 }
                 .map_err(to_pyerr)?
             }
